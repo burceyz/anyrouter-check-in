@@ -38,9 +38,10 @@ from utils.debug import debug_print, is_debug_enabled
 from utils.notify import notify
 from utils.proxy import get_playwright_proxy, get_proxy_server
 
-load_dotenv()
+env_file = os.getenv('CHECKIN_ENV_FILE')
+load_dotenv(env_file or None, override=bool(env_file))
 
-BALANCE_HASH_FILE = 'balance_hash.txt'
+BALANCE_HASH_FILE = os.getenv('CHECKIN_BALANCE_HASH_FILE', 'balance_hash.txt')
 
 
 def load_balance_hash():
@@ -256,6 +257,38 @@ def get_user_info(client, headers, user_info_url: str):
 		return {'success': False, 'error': f'Failed to get user info: {str(e)[:50]}...'}
 
 
+def login_with_api_token(client, account_name: str, provider_config, username: str, password: str) -> str | None:
+	"""使用 New API 账号密码登录，获取本次运行所需的访问令牌。"""
+	try:
+		response = client.post(
+			f'{provider_config.domain}/api/user/login',
+			json={'username': username, 'password': password},
+			timeout=30,
+		)
+		if response.status_code != 200:
+			print(f'[FAILED] {account_name}: Login failed - HTTP {response.status_code}')
+			return None
+		payload = response.json()
+		if not isinstance(payload, dict) or payload.get('success') is not True:
+			message = (
+				payload.get('message', 'Unknown error') if isinstance(payload, dict) else 'Invalid response format'
+			)
+			print(f'[FAILED] {account_name}: Login failed - {str(message)[:100]}')
+			return None
+		data = payload.get('data')
+		token = data.get('access_token') if isinstance(data, dict) else None
+		if not isinstance(token, str) or not token:
+			print(
+				f'[FAILED] {account_name}: Login failed - Access token missing (additional verification may be required)'
+			)
+			return None
+		print(f'[SUCCESS] {account_name}: API login successful')
+		return token
+	except Exception as e:
+		print(f'[FAILED] {account_name}: Login failed - {str(e)[:100]}')
+		return None
+
+
 async def prepare_cookies(account_name: str, provider_config, user_cookies: dict) -> dict | None:
 	"""准备请求所需的 cookies（可能包含 WAF cookies）"""
 	waf_cookies = {}
@@ -361,6 +394,11 @@ async def check_in_account(account: AccountConfig, account_index: int, app_confi
 		return False, None, None
 
 	print(f'[INFO] {account_name}: Using provider "{account.provider}" ({provider_config.domain})')
+	if provider_config.auth_mode == 'bearer_login':
+		if not account.has_login_credentials():
+			print(f'[FAILED] {account_name}: Login failed - Username/email and password required')
+			return False, None, None
+		return run_check_in_requests({}, account, account_name, provider_config, use_proxy=provider_config.use_proxy)
 
 	# 邮箱密码优先
 	all_cookies = None
@@ -368,12 +406,12 @@ async def check_in_account(account: AccountConfig, account_index: int, app_confi
 	auth_method = None
 	if account.has_login_credentials():
 		print(f'[INFO] {account_name}: Attempting email/password login (priority)...')
-		assert account.email is not None and account.password is not None
+		assert (account.username or account.email) is not None and account.password is not None
 		login_result = await login_with_credentials(
 			account_name,
 			provider_config,
 			account.provider,
-			account.email,
+			account.username or account.email,
 			account.password,
 		)
 		if login_result:
@@ -447,6 +485,13 @@ def run_check_in_requests(
 			api_user = api_user_override or account.api_user
 			if api_user:
 				headers[provider_config.api_user_key] = api_user
+			if provider_config.auth_mode == 'bearer_login':
+				username = account.username or account.email
+				assert username is not None and account.password is not None
+				token = login_with_api_token(client, account_name, provider_config, username, account.password)
+				if not token:
+					return False, None, None
+				headers['Authorization'] = f'Bearer {token}'
 
 			user_info_url = f'{provider_config.domain}{provider_config.user_info_path}'
 			user_info_before = get_user_info(client, headers, user_info_url)
@@ -456,6 +501,22 @@ def run_check_in_requests(
 				print(user_info_before.get('error', 'Unknown error'))
 
 			if provider_config.needs_manual_check_in():
+				if provider_config.auth_mode == 'bearer_login':
+					status_url = f'{provider_config.domain}{provider_config.sign_in_path}'
+					status_response = client.get(
+						status_url,
+						params={'month': datetime.now().strftime('%Y-%m')},
+						headers=headers,
+						timeout=30,
+					)
+					if status_response.status_code == 200:
+						status_data = status_response.json()
+						if (
+							status_data.get('success')
+							and status_data.get('data', {}).get('stats', {}).get('checked_in_today') is True
+						):
+							print(f'[SUCCESS] {account_name}: Already checked in today')
+							return True, user_info_before, user_info_before
 				success = execute_check_in(client, account_name, provider_config, headers)
 				user_info_after = get_user_info(client, headers, user_info_url)
 				return success, user_info_before, user_info_after

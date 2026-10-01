@@ -15,6 +15,7 @@ class ProviderConfig:
 
 	name: str
 	domain: str
+	auth_mode: Literal['browser', 'bearer_login'] = 'browser'
 	login_path: str = '/login'
 	sign_in_path: str | None = '/api/user/sign_in'
 	user_info_path: str = '/api/user/self'
@@ -53,6 +54,7 @@ class ProviderConfig:
 		return cls(
 			name=name,
 			domain=data['domain'],
+			auth_mode=data.get('auth_mode', defaults.auth_mode if defaults else 'browser'),
 			login_path=data.get('login_path', defaults.login_path if defaults else '/login'),
 			sign_in_path=data.get('sign_in_path', defaults.sign_in_path if defaults else '/api/user/sign_in'),
 			user_info_path=data.get('user_info_path', defaults.user_info_path if defaults else '/api/user/self'),
@@ -106,6 +108,12 @@ class AppConfig:
 				use_proxy=True,
 				persist_profile=False,
 			),
+			'happycoding': ProviderConfig(
+				name='happycoding',
+				domain='https://happycoding.xyz',
+				auth_mode='bearer_login',
+				sign_in_path='/api/user/checkin',
+			),
 		}
 
 		# 尝试从环境变量加载自定义 providers
@@ -154,6 +162,7 @@ class AccountConfig:
 	provider: str = 'anyrouter'
 	name: str | None = None
 	email: str | None = None
+	username: str | None = None
 	password: str | None = None
 
 	@classmethod
@@ -168,12 +177,13 @@ class AccountConfig:
 			provider=provider,
 			name=name if name else None,
 			email=data.get('email'),
+			username=data.get('username'),
 			password=data.get('password'),
 		)
 
 	def has_login_credentials(self) -> bool:
 		"""是否配置了邮箱密码登录"""
-		return bool(self.email and self.password)
+		return bool((self.username or self.email) and self.password)
 
 	def get_display_name(self, index: int) -> str:
 		"""获取显示名称"""
@@ -206,18 +216,18 @@ def load_accounts_config() -> list[AccountConfig] | None:
 				return None
 
 			if 'api_user' not in account_dict:
-				has_login = account_dict.get('email') and account_dict.get('password')
+				has_login = (account_dict.get('username') or account_dict.get('email')) and account_dict.get('password')
 				if not has_login:
 					print(
-						f'ERROR: Account {i + 1} missing required field (api_user) - only email+password login can omit it'
+						f'ERROR: Account {i + 1} missing required field (api_user) - only username/email+password login can omit it'
 					)
 					return None
 
 			has_cookies = 'cookies' in account_dict and account_dict['cookies']
-			has_login = account_dict.get('email') and account_dict.get('password')
+			has_login = (account_dict.get('username') or account_dict.get('email')) and account_dict.get('password')
 
 			if not has_cookies and not has_login:
-				print(f'ERROR: Account {i + 1} must have either cookies or email+password')
+				print(f'ERROR: Account {i + 1} must have either cookies or username/email+password')
 				return None
 
 			if 'name' in account_dict and not account_dict['name']:

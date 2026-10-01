@@ -7,7 +7,7 @@
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![License](https://img.shields.io/github/license/millylee/anyrouter-check-in)](LICENSE)
 
-多平台多账号自动签到，理论上支持所有 NewAPI、OneAPI 平台，目前内置支持 Any Router 与 Agent Router，其它可根据文档进行摸索配置。
+多平台多账号自动签到，目前内置支持 Any Router、Agent Router 与 HappyCoding，其它 NewAPI、OneAPI 平台可按文档配置。
 
 推荐搭配使用[Auo](https://github.com/millylee/auo)，支持任意 Claude Code Token 切换的工具。
 
@@ -80,7 +80,7 @@
 
 **字段说明**：
 
-- `email` + `password`：推荐的浏览器登录方式，登录成功后会自动获取 cookies 与用户标识
+- `email` 或 `username` + `password`：账号密码登录；HappyCoding 每次运行自动获取访问令牌
 - `cookies`：兼容旧版的 session cookies 登录方式
 - `api_user`：session cookies 登录时用于请求头的 new-api-user 参数；邮箱密码登录可省略
 - `provider` (可选)：指定使用的服务商，默认为 `anyrouter`
@@ -90,7 +90,26 @@
 
 - 如果未提供 `provider` 字段，默认使用 `anyrouter`（向后兼容）
 - 如果未提供 `name` 字段，会使用 `Account 1`、`Account 2` 等默认名称
-- `anyrouter` 与 `agentrouter` 配置已内置，无需填写
+- `anyrouter`、`agentrouter` 与 `happycoding` 配置已内置，无需填写 `PROVIDERS`
+
+#### HappyCoding 账号密码签到
+
+将 HappyCoding 账号加入 `ANYROUTER_ACCOUNTS`，无需手动提取 Cookie 或填写 `api_user`：
+
+```json
+[
+  {
+    "name": "HappyCoding 主账号",
+    "provider": "happycoding",
+    "username": "your_username_or_email",
+    "password": "your_password"
+  }
+]
+```
+
+脚本每次运行都会用账号密码登录，查询当天签到状态，仅在尚未签到时调用签到接口。若账号要求额外的人机验证或二次验证，当前账号密码模式无法无人值守完成。
+
+本地批次运行时，将上述 JSON 写入 `.env.happycoding` 的 `ANYROUTER_ACCOUNTS`，执行 `PROJECT_DIR=/你的项目路径 ./run_checkin.sh happycoding`。运行后用 `python3 show_balance.py` 查看各账号余额、签到状态和按平台独立汇总的余额；该脚本读取本地 `checkin_*.log`，不读取 GitHub Actions 日志。
 
 如果使用 session cookies 登录，接下来获取 cookies 与 api_user 的值。
 
@@ -182,7 +201,7 @@
 
 ## 自定义 Provider 配置（可选）
 
-默认情况下，`anyrouter`、`agentrouter` 已内置配置，无需额外设置。如果你需要使用其他服务商，可以通过环境变量 `PROVIDERS` 配置：
+默认情况下，`anyrouter`、`agentrouter`、`happycoding` 已内置配置，无需额外设置。如果你需要使用其他服务商，可以通过环境变量 `PROVIDERS` 配置：
 
 ### 基础配置（仅域名）
 
@@ -219,7 +238,7 @@
 - 不设置或设置为 `null`：直接使用用户提供的 cookies 进行请求（适合无 WAF 保护的网站）
 - 设置为 `"waf_cookies"`：使用 CloakBrowser 打开浏览器获取 WAF cookies 后再进行请求（适合有 WAF 保护的网站）
 
-> 注：`anyrouter` 和 `agentrouter` 已内置默认配置，无需在 `PROVIDERS` 中配置
+> 注：三个内置平台无需在 `PROVIDERS` 中配置
 
 ### 在 GitHub Actions 中配置
 
@@ -264,10 +283,13 @@
   - `bypass_method: "waf_cookies"`（需要获取 `acw_tc`）
   - `sign_in_path: null`（查询用户信息时自动签到）
   - `use_proxy: true`
+- `happycoding`：
+  - 使用 `/api/user/login` 进行账号密码登录，并为请求添加 Bearer token
+  - `sign_in_path: "/api/user/checkin"`
 
 **重要提示**：
 
-- `PROVIDERS` 是可选的，不配置则使用内置的 `anyrouter` 和 `agentrouter`
+- `PROVIDERS` 是可选的，不配置则使用三个内置平台
 - 自定义的 provider 配置会覆盖同名的默认配置
 
 ## 代理配置（可选）
