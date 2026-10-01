@@ -325,6 +325,20 @@ PROVIDERS={"agentrouter":{"use_proxy":true}}
 
 - `DINGDING_WEBHOOK`: 钉钉机器人的 Webhook 地址
 
+钉钉机器人安全设置请选择“自定义关键词”，关键词填写 `任务进度`。项目提供了一个只读余额推送命令，默认读取 `checkin_batch6.log*`，只推送 HappyCoding 账号：
+
+```bash
+uv run python push_balance_dingtalk.py --env-file .env.batch6 --pattern 'checkin_batch6.log*'
+```
+
+加入 crontab 时使用绝对路径，例如每天 09:05 推送：
+
+```cron
+5 9 * * * cd /绝对路径/anyrouter-check-in && /绝对路径/uv run python push_balance_dingtalk.py --env-file /绝对路径/anyrouter-check-in/.env.batch6 --pattern '/绝对路径/anyrouter-check-in/checkin_batch6.log*' >> /绝对路径/anyrouter-check-in/checkin_batch6_dingtalk.log 2>&1
+```
+
+测试消息内容可加 `--dry-run`；该命令只读日志，不会触发任何网站签到请求。请先在 `.env.batch6` 中替换两个账号密码和 `DINGDING_WEBHOOK` 占位符。
+
 ### 飞书机器人
 
 - `FEISHU_WEBHOOK`: 飞书机器人的 Webhook 地址
