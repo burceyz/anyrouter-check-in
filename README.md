@@ -311,7 +311,7 @@ PROVIDERS={"agentrouter":{"use_proxy":true}}
 
 ## 开启通知
 
-脚本支持多种通知方式，可以通过配置以下环境变量开启，如果 `webhook` 有要求安全设置，例如钉钉，可以在新建机器人时选择自定义关键词，填写 `AnyRouter`。
+脚本支持多种通知方式，可以通过配置以下环境变量开启。钉钉机器人需要在安全设置中选择自定义关键词，填写 `任务进度`。
 
 ### 邮箱通知(STMP)
 
@@ -324,6 +324,14 @@ PROVIDERS={"agentrouter":{"use_proxy":true}}
 ### 钉钉机器人
 
 - `DINGDING_WEBHOOK`: 钉钉机器人的 Webhook 地址
+
+连接地址填写在 `.env.batch6` 的 `DINGDING_WEBHOOK`：
+
+```dotenv
+DINGDING_WEBHOOK=https://oapi.dingtalk.com/robot/send?access_token=你的真实token
+```
+
+执行关系：`run_checkin.sh batch6` 负责实际登录、签到并生成 `checkin_batch6.log`；`push_balance_dingtalk.py` 只读取该日志并推送余额，二者是独立命令。没有先运行签到命令时，推送命令没有可用日志就会失败。
 
 钉钉机器人安全设置请选择“自定义关键词”，关键词填写 `任务进度`。项目提供了一个只读余额推送命令，默认读取 `checkin_batch6.log*`，只推送 HappyCoding 账号：
 
