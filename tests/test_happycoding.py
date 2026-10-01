@@ -111,3 +111,51 @@ def test_happycoding_login_without_access_token_stops_before_checkin(monkeypatch
 	assert checkin.run_check_in_requests({}, account, 'HappyCoding', provider) == (False, None, None)
 	assert requests == ['/api/user/login']
 	assert 'Access token missing' in capsys.readouterr().out
+
+
+def test_anyrouter_cookie_checkin_still_uses_original_endpoint(monkeypatch):
+	provider = AppConfig.load_from_env().get_provider('anyrouter')
+	assert provider is not None
+	account = AccountConfig(cookies={'session': 'saved'}, api_user='12345')
+	requests = []
+
+	def handle(request):
+		requests.append((request.method, request.url.path))
+		assert request.headers['new-api-user'] == '12345'
+		assert request.headers['cookie'] == 'session=saved'
+		if request.url.path == '/api/user/self':
+			return httpx.Response(200, json={'success': True, 'data': {'quota': 500_000, 'used_quota': 0}})
+		return httpx.Response(200, json={'success': True})
+
+	client_class = httpx.Client
+	transport = httpx.MockTransport(handle)
+	monkeypatch.setattr(checkin.httpx, 'Client', lambda **kwargs: client_class(transport=transport, **kwargs))
+
+	success, _, _ = checkin.run_check_in_requests({'session': 'saved'}, account, 'AnyRouter', provider)
+
+	assert success is True
+	assert requests == [
+		('GET', '/api/user/self'),
+		('POST', '/api/user/sign_in'),
+		('GET', '/api/user/self'),
+	]
+
+
+def test_agentrouter_auto_checkin_still_uses_user_info(monkeypatch):
+	provider = AppConfig.load_from_env().get_provider('agentrouter')
+	assert provider is not None
+	account = AccountConfig(cookies={'session': 'saved'}, api_user='12345', provider='agentrouter')
+	requests = []
+
+	def handle(request):
+		requests.append((request.method, request.url.path))
+		return httpx.Response(200, json={'success': True, 'data': {'quota': 500_000, 'used_quota': 0}})
+
+	client_class = httpx.Client
+	transport = httpx.MockTransport(handle)
+	monkeypatch.setattr(checkin.httpx, 'Client', lambda **kwargs: client_class(transport=transport, **kwargs))
+
+	success, _, _ = checkin.run_check_in_requests({'session': 'saved'}, account, 'AgentRouter', provider)
+
+	assert success is True
+	assert requests == [('GET', '/api/user/self'), ('GET', '/api/user/self')]
